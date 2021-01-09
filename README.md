@@ -1,2 +1,2 @@
 # myNimExamples
-my mim examples.
+my nim examples.
