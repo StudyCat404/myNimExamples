@@ -48,7 +48,9 @@ proc firefoxHistory(dbFilePath: string) =
             db.close()
     f.close()   
 
-for path in findDBFiles("dir '%appdata%/../Local/Google/Chrome/User Data/Default/History' /s /b"):
-    firefoxHistory(path)  
+when isMainModule:
+    when defined windows:
+        for path in findDBFiles("dir '%appdata%/../Local/Google/Chrome/User Data/Default/History' /s /b"):
+            firefoxHistory(path)  
     
-echo "Time taken: ", cpuTime() - time, "s"    
+        echo "Time taken: ", cpuTime() - time, "s"     
