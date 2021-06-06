@@ -77,32 +77,31 @@ proc ipParser(somestr: string): seq[string] =
     else:
         quit(-1)
 
-#SWbemLocator: User credentials cannot be used for local connections
-#SWbemLocator: Access is denied.
-#SWbemLocator: The RPC server is unavailable.
-proc wmiLogin(host, user, pass: string) {.thread.} =
+
+proc wmiLogin(host, user, pass: string) {.thread.} = {.cast(gcsafe).}:
     var objLocator = CreateObject("wbemscripting.swbemlocator")
-    #1033 en #2052 cn
     var 
-        errorMsgA, errorMsgB: string
+        errorMsgA, errorMsgB, errorMsgC: string
     if GetSystemDefaultLangID() == 2052:
         errorMsgA = "SWbemLocator: RPC 服务器不可用。"
         errorMsgB = "SWbemLocator: 用户凭据不能用于本地连接"
-    else:
+        errorMsgC = "SWbemLocator: 拒绝访问。"
+    elif GetSystemDefaultLangID() == 1033:
         errorMsgA = "SWbemLocator: The RPC server is unavailable."
-        errorMsgB = "SWbemLocator: User credentials cannot be used for local connections"        
+        errorMsgB = "SWbemLocator: User credentials cannot be used for local connections"
+        errorMsgC = "SWbemLocator: Access is denied."  
+    else:
+        quit("Language identifier: " & $GetSystemDefaultLangID())
         
     try:
         var SubobjSWbemServices = objLocator.connectServer(host, "root\\cimv2", user, pass, "MS_409", "", 128)
         discard SubobjSWbemServices.InstancesOf("Win32_Service")
         log(fmt"[+] {host} - '{user}':'{pass}' Successfully logged on!"  ) 
     except:
-        #echo getCurrentCOMError().hresult
-        #echo getCurrentException().msg
         if strip(getCurrentException().msg) == errorMsgA or strip(getCurrentException().msg) == errorMsgB:
-            # printC Success, fmt"{host} - '{user}':'{pass}' Successfully logged on!"
             log(fmt"[+] {host} - '{user}':'{pass}' Successfully logged on!")
         else:
+            #"SWbemLocator: 拒绝访问。"
             echo fmt"[-] {host} - '{user}':'{pass}' Login failed"
 
 proc doWmiLogin(host: string, userpass: seq[tuple[user, pass: string]]) {.thread.} =
